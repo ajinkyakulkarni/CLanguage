@@ -16,7 +16,7 @@ namespace CLanguage.Interpreter
 	{
 		public OpCode Op;
 		public Value X;
-		public Label Label;
+		public Label? Label;
 
 		public Instruction (OpCode op, Value x)
 		{
@@ -122,6 +122,28 @@ namespace CLanguage.Interpreter
         DivideFloat32,
         DivideFloat64,
 
+        ShiftLeftInt8,
+        ShiftLeftUInt8,
+        ShiftLeftInt16,
+        ShiftLeftUInt16,
+        ShiftLeftInt32,
+        ShiftLeftUInt32,
+        ShiftLeftInt64,
+        ShiftLeftUInt64,
+        ShiftLeftFloat32,
+        ShiftLeftFloat64,
+
+        ShiftRightInt8,
+        ShiftRightUInt8,
+        ShiftRightInt16,
+        ShiftRightUInt16,
+        ShiftRightInt32,
+        ShiftRightUInt32,
+        ShiftRightInt64,
+        ShiftRightUInt64,
+        ShiftRightFloat32,
+        ShiftRightFloat64,
+
         ModuloInt8,
         ModuloUInt8,
         ModuloInt16,
@@ -174,6 +196,39 @@ namespace CLanguage.Interpreter
 
         #region Bitwise
 
+        BinaryAndInt8,
+        BinaryAndUInt8,
+        BinaryAndInt16,
+        BinaryAndUInt16,
+        BinaryAndInt32,
+        BinaryAndUInt32,
+        BinaryAndInt64,
+        BinaryAndUInt64,
+        BinaryAndFloat32,
+        BinaryAndFloat64,
+
+        BinaryOrInt8,
+        BinaryOrUInt8,
+        BinaryOrInt16,
+        BinaryOrUInt16,
+        BinaryOrInt32,
+        BinaryOrUInt32,
+        BinaryOrInt64,
+        BinaryOrUInt64,
+        BinaryOrFloat32,
+        BinaryOrFloat64,
+
+        BinaryXorInt8,
+        BinaryXorUInt8,
+        BinaryXorInt16,
+        BinaryXorUInt16,
+        BinaryXorInt32,
+        BinaryXorUInt32,
+        BinaryXorInt64,
+        BinaryXorUInt64,
+        BinaryXorFloat32,
+        BinaryXorFloat64,
+
         #endregion
 
         #region Unary
@@ -188,6 +243,17 @@ namespace CLanguage.Interpreter
         NotUInt64,
         NotFloat32,
         NotFloat64,
+
+        BinaryNotInt8,
+        BinaryNotUInt8,
+        BinaryNotInt16,
+        BinaryNotUInt16,
+        BinaryNotInt32,
+        BinaryNotUInt32,
+        BinaryNotInt64,
+        BinaryNotUInt64,
+        BinaryNotFloat32,
+        BinaryNotFloat64,
 
         NegateInt8,
         NegateUInt8,
@@ -206,7 +272,6 @@ namespace CLanguage.Interpreter
 
         LogicalAnd,
         LogicalOr,
-        LogicalNot,
 
         #endregion
 

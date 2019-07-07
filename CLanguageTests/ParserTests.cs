@@ -12,7 +12,29 @@ namespace CLanguage.Tests
 	[TestClass]
 	public class ParserTests
 	{
-		[TestMethod]
+        [TestMethod]
+        public void BlankTranslationUnit ()
+        {
+            var tu = ParseTranslationUnit (@"", new TestPrinter ());
+            Assert.IsNotNull (tu);
+        }
+
+        [TestMethod]
+        public void EmptyStatements ()
+        {
+            var tu = ParseTranslationUnit (@"
+;;
+;
+void f() {
+    ;
+    ;
+}
+            ", new TestPrinter ());
+            Assert.IsNotNull (tu);
+            Assert.AreEqual ("f", ((FunctionDefinition)tu.Statements.Last ()).Declarator.DeclaredIdentifier);
+        }
+
+        [TestMethod]
 		public void BadFunction ()
 		{
 			var failed = false;
@@ -64,11 +86,51 @@ void f () {
         [TestMethod]
         public void HexNumbers ()
         {
-            var lex = new Lexer ("", "0x201");
-            lex.advance ();
-            Assert.AreEqual (Token.CONSTANT, lex.token ());
-            Assert.AreEqual (513, lex.value ());
+            var lex = new Lexer ("hex.c", "0x201");
+            lex.Advance ();
+            Assert.AreEqual (TokenKind.CONSTANT, lex.CurrentToken.Kind);
+            Assert.AreEqual (513, lex.CurrentToken.Value);
         }
-	}
+
+        [TestMethod]
+        public void HexLetters ()
+        {
+            var lex = new Lexer ("hex.c", "0xC0");
+            lex.Advance ();
+            Assert.AreEqual (TokenKind.CONSTANT, lex.CurrentToken.Kind);
+            Assert.AreEqual (192, lex.CurrentToken.Value);
+        }
+
+        [TestMethod]
+        public void EmojiIds ()
+        {
+            AssertId ("🎃");
+            AssertId ("🎃", "🎃=0;");
+        }
+
+        [TestMethod]
+        public void NonEnglishIds ()
+        {
+            AssertId ("ὸ");
+            AssertId ("あ");
+            AssertId ("あ", "あ/2");
+            AssertId ("あ", "あ (2");
+        }
+
+        [TestMethod]
+        public void BadSymbols ()
+        {
+            AssertId ("´");
+            AssertId ("⁼");
+        }
+
+        void AssertId (string expectedId, string code = null)
+        {
+            var lex = new Lexer ("assertid.c", code ?? expectedId);
+            lex.Advance ();
+            Assert.AreEqual (TokenKind.IDENTIFIER, lex.CurrentToken.Kind);
+            Assert.AreEqual (expectedId, lex.CurrentToken.Value);
+        }
+    }
 }
 

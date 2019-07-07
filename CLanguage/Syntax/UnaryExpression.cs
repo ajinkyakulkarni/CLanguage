@@ -2,6 +2,7 @@
 
 using CLanguage.Types;
 using CLanguage.Interpreter;
+using CLanguage.Compiler;
 
 namespace CLanguage.Syntax
 {
@@ -77,6 +78,9 @@ namespace CLanguage.Syntax
                             case Unop.Not:
                                 ec.Emit ((OpCode)(OpCode.NotInt8 + ioff));
                                 break;
+                            case Unop.BinaryComplement:
+                                ec.Emit ((OpCode)(OpCode.BinaryNotInt8 + ioff));
+                                break;
                             default:
                                 throw new NotSupportedException ("Unsupported unary operator '" + Op + "'");
                         }
@@ -88,6 +92,38 @@ namespace CLanguage.Syntax
         public override string ToString()
         {
             return string.Format("({0} {1})", Op, Right);
+        }
+
+        public override Value EvalConstant (EmitContext ec)
+        {
+            var rightType = Right.GetEvaluatedCType (ec);
+
+            if (rightType.IsIntegral) {
+                var right = (int)Right.EvalConstant (ec);
+
+                switch (Op) {
+                    case Unop.None:
+                        return right;
+                    case Unop.Not:
+                        return (right == 0) ? 1 : 0;
+                    case Unop.Negate:
+                        return -right;
+                    case Unop.BinaryComplement:
+                        return ~right;
+                    case Unop.PreIncrement:
+                        return right + 1;
+                    case Unop.PreDecrement:
+                        return right - 1;
+                    case Unop.PostIncrement:
+                        return right;
+                    case Unop.PostDecrement:
+                        return right;
+                    default:
+                        throw new NotSupportedException ("Unsupported unary operator '" + Op + "'");
+                }
+            }
+
+            return base.EvalConstant (ec);
         }
     }
 }

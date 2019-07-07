@@ -4,39 +4,77 @@ using CLanguage.Interpreter;
 using CLanguage.Types;
 using System.Linq;
 
-namespace CLanguage.Interpreter
+namespace CLanguage.Compiler
 {
-    public class EmitContext
+    public abstract class EmitContext
     {
-        public CompiledFunction FunctionDecl { get; private set; }
+        public EmitContext? ParentContext { get; }
+        public CompiledFunction? FunctionDecl { get; private set; }
 
         public Report Report { get; private set; }
 
         public MachineInfo MachineInfo { get; private set; }
 
-        public EmitContext (MachineInfo machineInfo, Report report, CompiledFunction fdecl = null)
-        {
-            if (machineInfo == null) throw new ArgumentNullException (nameof (machineInfo));
-            if (report == null) throw new ArgumentNullException (nameof (report));
+        protected EmitContext (EmitContext parentContext)
+            : this (parentContext.MachineInfo, parentContext.Report, parentContext.FunctionDecl, parentContext)
+        { 
+        }
 
-            MachineInfo = machineInfo;
-            Report = report;
-            FunctionDecl = fdecl;
+        protected EmitContext (MachineInfo machineInfo, Report report, CompiledFunction? fdecl, EmitContext? parentContext)
+        {
+            MachineInfo = machineInfo ?? (parentContext?.MachineInfo ?? throw new ArgumentNullException (nameof (machineInfo)));
+            Report = report ?? (parentContext?.Report ?? throw new ArgumentNullException (nameof (report)));
+            FunctionDecl = fdecl ?? parentContext?.FunctionDecl;
+            ParentContext = parentContext;
         }
 
         public virtual CType ResolveTypeName (TypeName typeName)
         {
-            return MakeCType (typeName.Specifiers, typeName.Declarator, null, null);
+            return MakeCType (typeName.Specifiers, typeName.Declarator, null, new Block (VariableScope.Global));
         }
 
-        public virtual ResolvedVariable ResolveVariable (string name, CType[] argTypes)
+        public virtual CType ResolveTypeName (string typeName)
         {
+            var r = ParentContext?.ResolveTypeName (typeName);
+            if (r != null)
+                return r;
+
+            Report.ErrorCode (103, typeName);
+            return CBasicType.SignedInt;
+        }
+
+        public ResolvedVariable ResolveVariable (VariableExpression variable, CType[]? argTypes)
+        {
+            var name = variable.VariableName;
+
+            var r = TryResolveVariable (name, argTypes);
+            if (r != null)
+                return r;
+
+            r = MachineInfo.GetUnresolvedVariable (name, argTypes, this);
+            if (r != null)
+                return r;
+
+            Report.ErrorCode (103, variable.Location, variable.EndLocation, name);
+            return new ResolvedVariable (VariableScope.Global, 0, CBasicType.SignedInt);
+        }
+
+        public virtual ResolvedVariable? TryResolveVariable (string name, CType[]? argTypes)
+        {
+            var r = ParentContext?.TryResolveVariable (name, argTypes);
+            if (r != null)
+                return r;
+
             return null;
         }
 
         public virtual ResolvedVariable ResolveMethodFunction (CStructType structType, CStructMethod method)
         {
-            return null;
+            var r = ParentContext?.ResolveMethodFunction (structType, method);
+            if (r != null)
+                return r;
+
+            throw new Exception ("Cannot resolve method function");
         }
 
         public virtual void BeginBlock (Block b) { }
@@ -71,6 +109,9 @@ namespace CLanguage.Interpreter
             }
             else if (fromType is CArrayType fat && toType is CPointerType tpt && fat.ElementType.NumValues == tpt.InnerType.NumValues) {
                 // Demote arrays to pointers
+            }
+            else if (fromType is CEnumType et && toType is CIntType bt) {
+                // Enums act like ints
             }
             else {
                 Report.Error (30, "Cannot convert type '" + fromType + "' to '" + toType + "'");
@@ -134,13 +175,13 @@ namespace CLanguage.Interpreter
             throw new NotSupportedException ("Arithmetic on type '" + aType + "'");
         }
 
-        public CType MakeCType (DeclarationSpecifiers specs, Declarator decl, Initializer init, Block block)
+        public CType MakeCType (DeclarationSpecifiers specs, Declarator? decl, Initializer? init, Block block)
         {
-            var type = MakeCType (specs, block);
+            var type = MakeCType (specs, init, block);
             return MakeCType (type, decl, init, block);
         }
 
-        CType MakeCType (CType type, Declarator decl, Initializer init, Block block)
+        CType MakeCType (CType type, Declarator? decl, Initializer? init, Block block)
         {
             if (decl is IdentifierDeclarator) {
                 // This is the name
@@ -154,7 +195,7 @@ namespace CLanguage.Interpreter
                     isPointerToFunc = type is CFunctionType;
                 }
 
-                var p = pdecl.Pointer;
+                Pointer? p = pdecl.Pointer;
                 while (p != null) {
                     type = new CPointerType (type);
                     type.TypeQualifiers = p.TypeQualifiers;
@@ -174,13 +215,13 @@ namespace CLanguage.Interpreter
                     type = ((CPointerType)type).InnerType;
                 }
             }
-            else if (decl is ArrayDeclarator) {
-                var adecl = (ArrayDeclarator)decl;
+            else if (decl is ArrayDeclarator startAdecl) {
+                var adecl = (ArrayDeclarator?)startAdecl;
 
                 while (adecl != null) {
                     int? len = null;
                     if (adecl.LengthExpression is ConstantExpression clen) {
-                        len = Convert.ToInt32 (clen.Value);
+                        len = (int)clen.EvalConstant (this);
                     }
                     else {
                         if (init is StructuredInitializer sinit) {
@@ -192,7 +233,7 @@ namespace CLanguage.Interpreter
                         }
                     }
                     type = new CArrayType (type, len);
-                    adecl = adecl.InnerDeclarator as ArrayDeclarator;
+                    adecl = adecl?.InnerDeclarator as ArrayDeclarator;
                     if (adecl != null && adecl.InnerDeclarator != null) {
                         if (adecl.InnerDeclarator is IdentifierDeclarator) {
                         }
@@ -221,9 +262,12 @@ namespace CLanguage.Interpreter
             var name = decl.DeclaredIdentifier;
             var ftype = new CFunctionType (returnType, isInstance);
             foreach (var pdecl in fdecl.Parameters) {
-                var pt = MakeCType (pdecl.DeclarationSpecifiers, pdecl.Declarator, null, block);
+                var pt = pdecl.DeclarationSpecifiers != null
+                    ? MakeCType (pdecl.DeclarationSpecifiers, pdecl.Declarator, null, block)
+                    : CBasicType.SignedInt;
                 if (!pt.IsVoid) {
-                    ftype.AddParameter (pdecl.Name, pt);
+                    var defaultValue = pdecl.DefaultValue == null ? null : (Value?)pdecl.DefaultValue.EvalConstant (this);
+                    ftype.AddParameter (pdecl.Name, pt, defaultValue);
                 }
             }
 
@@ -232,8 +276,19 @@ namespace CLanguage.Interpreter
             return type;
         }
 
-        public CType MakeCType (DeclarationSpecifiers specs, Block block)
+        public CType MakeCType (DeclarationSpecifiers specs, Initializer? init, Block block)
         {
+            //
+            // Infer types
+            //
+            if (specs.StorageClassSpecifier == StorageClassSpecifier.Auto) {
+                if (!(init is ExpressionInitializer einit)) {
+                    this.Report.Error (818, "Implicitly-typed variabled must be initialized");
+                    return CBasicType.SignedInt;
+                }
+                return einit.Expression.GetEvaluatedCType (this);
+            }
+
             //
             // Try for Basic. The TypeSpecifiers are recorded in reverse from what is actually declared
             // in code.
@@ -246,7 +301,7 @@ namespace CLanguage.Interpreter
                 else {
                     var sign = Signedness.Signed;
                     var size = "";
-                    TypeSpecifier trueTs = null;
+                    TypeSpecifier? trueTs = null;
 
                     foreach (var ts in specs.TypeSpecifiers) {
                         if (ts.Name == "unsigned") {
@@ -280,8 +335,7 @@ namespace CLanguage.Interpreter
             var structTs = specs.TypeSpecifiers.FirstOrDefault (x => x.Kind == TypeSpecifierKind.Struct || x.Kind == TypeSpecifierKind.Class);
             if (structTs != null) {
                 if (structTs.Body != null) {
-                    var st = new CStructType ();
-                    st.Name = structTs.Name;
+                    var st = new CStructType (structTs.Name);
                     foreach (var s in structTs.Body.Statements) {
                         AddStructMember (st, s, block);
                     }
@@ -294,16 +348,53 @@ namespace CLanguage.Interpreter
                         return structType;
                     }
                     else {
-                        Report.Error (246, "The struct '{0}' could not be found", name);
+                        Report.Error (246, "'{0}' not found", name);
                         return CBasicType.SignedInt;
                     }
                 }
             }
 
             //
+            // Enums
+            //
+            var enumTs = specs.TypeSpecifiers.FirstOrDefault (x => x.Kind == TypeSpecifierKind.Enum);
+            if (enumTs != null) {
+                var enumName = specs.TypeSpecifiers[0].Name;
+                if (enumTs.Body != null) {
+                    var et = new CEnumType (enumTs.Name);
+                    var enumContext = new EnumContext (enumTs, et, this);
+                    foreach (var s in enumTs.Body.Statements) {
+                        AddEnumMember (et, s, block, enumContext);
+                    }
+                    return et;
+                }
+                else {
+                    // Lookup
+                    var name = enumTs.Name;
+                    if (block.Enums.TryGetValue (name, out var et)) {
+                        return et;
+                    }
+                    else {
+                        Report.Error (246, "'{0}' not found", name);
+                        return CBasicType.SignedInt;
+                    }
+                }
+                //Report.Error (9000, "Enums not supported");
+            }
+
+            //
+            // Typedefs
+            //
+            var typenameTs = specs.TypeSpecifiers.FirstOrDefault (x => x.Kind == TypeSpecifierKind.Typename);
+            if (typenameTs != null) {
+                var typedefName = typenameTs.Name;
+                return ResolveTypeName (typedefName);
+            }
+
+            //
             // Rest
             //
-            throw new NotImplementedException ();
+            throw new NotImplementedException (GetType ().Name);
         }
 
         void AddStructMember (CStructType st, Statement s, Block block)
@@ -324,6 +415,17 @@ namespace CLanguage.Interpreter
             }
             else {
                 throw new NotSupportedException ($"Cannot add statement `{s}` to struct");
+            }
+        }
+
+        void AddEnumMember (CEnumType st, Statement s, Block block, EnumContext context)
+        {
+            if (s is EnumeratorStatement es) {
+                var value = es.LiteralValue != null ? (int)es.LiteralValue.EvalConstant(context) : st.NextValue;
+                st.Members.Add (new CEnumMember (es.Name, value));
+            }
+            else {
+                throw new NotSupportedException ($"Cannot add statement `{s}` to enum");
             }
         }
     }

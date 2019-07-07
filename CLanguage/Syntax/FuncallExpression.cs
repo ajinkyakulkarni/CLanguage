@@ -4,7 +4,9 @@ using System.Linq;
 using System.Text;
 using CLanguage.Types;
 
+using CLanguage.Compiler;
 using CLanguage.Interpreter;
+using System.Diagnostics;
 
 namespace CLanguage.Syntax
 {
@@ -39,7 +41,7 @@ namespace CLanguage.Syntax
             }
             else
             {
-                return CType.Void;
+                return CBasicType.SignedInt;
             }
         }
 
@@ -53,10 +55,16 @@ namespace CLanguage.Syntax
 
             var type = function.CType as CFunctionType;
 
+            var numRequiredParameters = 0;
             if (type != null)
             {
-				if (type.Parameters.Count != Arguments.Count) {
-                    ec.Report.Error (1501, "'{0}' takes {1} arguments, {2} provided", Function, type.Parameters.Count, Arguments.Count);
+                foreach (var p in type.Parameters) {
+                    if (p.DefaultValue.HasValue)
+                        break;
+                    numRequiredParameters++;
+                }
+                if (Arguments.Count < numRequiredParameters) {
+                    ec.Report.Error (1501, "'{0}' takes {1} arguments, {2} provided", Function, numRequiredParameters, Arguments.Count);
 					return;
 				}
             }
@@ -73,6 +81,10 @@ namespace CLanguage.Syntax
 				Arguments[i].Emit (ec);
                 ec.EmitCast (argTypes[i], type.Parameters[i].ParameterType);
 			}
+            for (var i = Arguments.Count; i < type.Parameters.Count; i++) {
+                var v = type.Parameters[i].DefaultValue ?? (Value)0;
+                ec.Emit (OpCode.LoadConstant, v);
+            }
 
             function.Emit (ec);
 
@@ -93,7 +105,7 @@ namespace CLanguage.Syntax
                     var methods = structType.Members.OfType<CStructMethod> ().Where (x => x.Name == memr.MemberName).ToList ();
 
                     if (methods.Count == 0) {
-                        ec.Report.Error (1061, "Struct '{0}' does not contain a method named '{1}'", structType.Name, memr.MemberName);
+                        ec.Report.Error (1061, "'{1}' not found in '{0}'", structType.Name, memr.MemberName);
                         return Overload.Error;
                     }
                     else {
@@ -113,13 +125,12 @@ namespace CLanguage.Syntax
                         else {
                             var res = ec.ResolveMethodFunction (structType, method);
                             if (res != null) {
-                                return new Overload {
-                                    CType = res.Function?.FunctionType,
-                                    Emit = nec => {
+                                return new Overload (
+                                    res.Function?.FunctionType,
+                                    nec => {
                                         memr.Left.EmitPointer (nec);
                                         nec.Emit (OpCode.LoadConstant, Value.Pointer (res.Address));
-                                    },
-                                };
+                                    });                                
                             }
                             else {
                                 return Overload.Error;
@@ -133,33 +144,36 @@ namespace CLanguage.Syntax
                 }
             }
             else if (function is VariableExpression v) {
-                var res = ec.ResolveVariable (v.VariableName, argTypes);
+                var res = ec.ResolveVariable (v, argTypes);
                 if (res != null) {
-                    return new Overload {
-                        CType = res.VariableType,
-                        Emit = res.Emit
-                    };
+                    return new Overload (
+                        res.VariableType,
+                        res.EmitPointer);
                 }
                 else {
                     return Overload.Error;
                 }
             }
             else {
-                return new Overload {
-                    CType = function.GetEvaluatedCType (ec),
-                    Emit = function.Emit
-                };
+                return new Overload (
+                    function?.GetEvaluatedCType (ec),
+                    function != null ? function.Emit : Overload.NoEmit);
             }
         }
 
         class Overload
         {
-            public CType CType;
-            public Action<EmitContext> Emit;
-            public static readonly Overload Error = new Overload {
-                CType = CBasicType.SignedInt,
-                Emit = _ => { },
-            };
+            public readonly CType? CType;
+            public readonly Action<EmitContext> Emit;
+
+            public static readonly Action<EmitContext> NoEmit = _ => { };
+            public static readonly Overload Error = new Overload (CBasicType.SignedInt, NoEmit);
+
+            public Overload (CType? type, Action<EmitContext> emit)
+            {
+                CType = type;
+                Emit = emit ?? throw new ArgumentNullException (nameof (emit));
+            }
         }
 
         public override string ToString()

@@ -1,16 +1,18 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <Version>1.0.0</Version>
     <Authors>praeclarum</Authors>
     <Description>C parser, compiler, and interpreter.</Description>
-    <PackageTags>C;Compiler;Interpreter</PackageTags>
+    <PackageTags>C;Compiler;Interpreter;Language</PackageTags>
     <PackageIconUrl>https://github.com/praeclarum/CLanguage/raw/master/Documentation/Icon.png</PackageIconUrl>
     <PackageProjectUrl>https://github.com/praeclarum/CLanguage</PackageProjectUrl>
     <PackageLicenseUrl>https://github.com/praeclarum/CLanguage/blob/master/LICENSE</PackageLicenseUrl>
     <RepositoryUrl>https://github.com/praeclarum/CLanguage.git</RepositoryUrl>
     <TargetFramework>netstandard2.0</TargetFramework>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LangVersion>8.0</LangVersion>
+    <NullableReferenceTypes>true</NullableReferenceTypes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,8 +20,5 @@
     <Folder Include="Parser\" />
     <Folder Include="Syntax\" />
     <Folder Include="Types\" />
-  </ItemGroup>
-  <ItemGroup>
-    <Compile Remove="Interpreter\ExecutionState.cs" />
   </ItemGroup>
 </Project>

@@ -6,23 +6,32 @@ using System.Text;
 using CLanguage.Syntax;
 using CLanguage.Types;
 using CLanguage.Parser;
+using CLanguage.Interpreter;
+using System.Diagnostics;
 
-namespace CLanguage.Interpreter
+namespace CLanguage.Compiler
 {
-    public class Compiler
+    public class CCompiler
     {
-		EmitContext context;
+        CompilerOptions options;
+
+        readonly Dictionary<string, LexedDocument> lexedDocuments = new Dictionary<string, LexedDocument> ();
 
 		List<TranslationUnit> tus;
 
-		public Compiler (EmitContext context)
+		public CCompiler (CompilerOptions options)
 		{
-			this.context = context;
+            this.options = options;
 			tus = new List<TranslationUnit> ();
-		}
 
-		public Compiler (MachineInfo mi, Report report)
-			: this (new EmitContext (mi, report))
+            ProcessDocument (new Document ("_machine.h", options.MachineInfo.GeneratedHeaderCode));
+            foreach (var d in options.Documents) {
+                ProcessDocument (d);
+            }
+        }
+
+		public CCompiler (MachineInfo mi, Report report)
+			: this (new CompilerOptions (mi, report, Array.Empty<Document> ()))
         {
         }
 
@@ -31,66 +40,116 @@ namespace CLanguage.Interpreter
             tus.Add (translationUnit);
         }
 
-        public void AddCode (string name, string code)
+        void ProcessDocument (Document document)
         {
-            var pp = new Preprocessor (context.Report);
-            pp.AddCode ("machine.h", context.MachineInfo.HeaderCode);
-            pp.AddCode (name, code);
-            var lexer = new Lexer (pp);
-            var parser = new CParser ();
-            Add (parser.ParseTranslationUnit (lexer));
+            var lexed = new LexedDocument (document, options.Report);
+            lexedDocuments[document.Path] = lexed;
+
+            if (document.IsCompilable) {
+                var parser = new CParser ();
+
+                var name = System.IO.Path.GetFileNameWithoutExtension (document.Path);
+
+                Add (parser.ParseTranslationUnit (options.Report, name, Include, lexedDocuments["_machine.h"].Tokens, lexed.Tokens));
+            }
         }
 
-		public Executable Compile ()
-		{
-			var exe = new Executable (context.MachineInfo);
+        Token[]? Include (string filePath, bool relative)
+        {
+            return null;
+        }
 
-			// Put something at the zero address so we don't get 0 addresses of globals
-			exe.AddGlobal ("__zero__", CBasicType.SignedInt);
+        public void AddCode (string name, string code)
+        {
+            AddDocument (new Document (name, code));
+        }
+
+        public void AddDocument (Document document)
+        {
+            ProcessDocument (document);
+        }
+
+        public Executable Compile ()
+        {
+            try {
+                return CompileExecutable ();
+            }
+            catch (Exception ex) {
+                Debug.WriteLine (ex);
+                options.Report.Error (9000, "Compiler error: " + ex.Message);
+                return new Executable (options.MachineInfo);
+            }
+        }
+
+        Executable CompileExecutable ()
+        {
+            var exe = new Executable (options.MachineInfo);
+            var exeContext = new ExecutableContext (exe, options.Report);
+
+            // Put something at the zero address so we don't get 0 addresses of globals
+            exe.AddGlobal ("__zero__", CBasicType.SignedInt);
 
             //
             // Find Variables, Functions, Types
             //
-            var cinitBody = new Block ();
-            foreach (var tu in tus) {
-                AddStatementDeclarations (tu);
-                cinitBody.Statements.AddRange (tu.InitStatements);
+            var exeInitBody = new Block (VariableScope.Local);
+            var tucs = tus.Select (x => new TranslationUnitContext (x, exeContext));
+            var tuInits = new List<(CompiledFunction, EmitContext)> ();
+            foreach (var tuc in tucs) {
+                var tu = tuc.TranslationUnit;
+                AddStatementDeclarations (tuc);
+                if (tu.InitStatements.Count > 0) {
+                    var tuInitBody = new Block (VariableScope.Local);
+                    tuInitBody.AddStatements (tu.InitStatements);
+                    var tuInit = new CompiledFunction ($"__{tu.Name}__cinit", CFunctionType.VoidProcedure, tuInitBody);
+                    exeInitBody.AddStatement (new ExpressionStatement (new FuncallExpression (new VariableExpression (tuInit.Name, Location.Null, Location.Null))));
+                    tuInits.Add ((tuInit, tuc));
+                    exe.Functions.Add (tuInit);
+                }
             }
 
             //
             // Generate a function to init globals
             //
-            exe.Functions.Add (new CompiledFunction ("__cinit", CFunctionType.VoidProcedure, cinitBody));
+            var exeInit = new CompiledFunction ($"__cinit", CFunctionType.VoidProcedure, exeInitBody);
+            exe.Functions.Add (exeInit);
 
             //
             // Link everything together
             // This is done before compilation to make sure everything is visible (for recursion)
             //
-            foreach (var tu in tus) {
+            var functionsToCompile = new List<(CompiledFunction, EmitContext)> { (exeInit, exeContext) };
+            functionsToCompile.AddRange (tuInits);
+            foreach (var tuc in tucs) {
+                var tu = tuc.TranslationUnit;
                 foreach (var g in tu.Variables) {
                     var v = exe.AddGlobal (g.Name, g.VariableType);
                     v.InitialValue = g.InitialValue;
                 }
-                exe.Functions.AddRange (tu.Functions.Where (x => x.Body != null));
+                var funcs = tu.Functions.Where (x => x.Body != null).ToList ();
+                exe.Functions.AddRange (funcs);
+                functionsToCompile.AddRange (funcs.Select (x => (x, (EmitContext)tuc)));
             }
 
             //
             // Compile functions
             //
-            foreach (var f in exe.Functions.OfType<CompiledFunction> ()) {
-                AddStatementDeclarations (f.Body);
-
-				var c = new FunctionContext (exe, f, context);
-				f.Body.Emit (c);
-				f.LocalVariables.AddRange (c.LocalVariables);
+            foreach (var (f, pc) in functionsToCompile) {
+                var body = f.Body;
+                if (body == null)
+                    continue;
+                var fc = new FunctionContext (exe, f, pc);
+                AddStatementDeclarations (fc);
+				body.Emit (fc);
+				f.LocalVariables.AddRange (fc.LocalVariables);
 
 				// Make sure it returns
-				if (f.Body.Statements.Count == 0 || !f.Body.AlwaysReturns) {
+				if (body.Statements.Count == 0 || !body.AlwaysReturns) {
 					if (f.FunctionType.ReturnType.IsVoid) {
-						c.Emit (OpCode.Return);
+						fc.Emit (OpCode.Return);
 					}
 					else {
-						context.Report.Error (161, "'" + f.Name + "' not all code paths return a value");
+						options.Report.Error (161, "'" + f.Name + "' not all code paths return a value");
 					}
 				}
 			}
@@ -98,26 +157,29 @@ namespace CLanguage.Interpreter
 			return exe;
 		}
 
-        void AddStatementDeclarations (Block block)
+        void AddStatementDeclarations (BlockContext context)
         {
+            var block = context.Block;
             foreach (var s in block.Statements) {
-                AddStatementDeclarations (s, block);
+                AddStatementDeclarations (s, context);
             }
         }
 
-        void AddStatementDeclarations (Statement statement, Block block)
+        void AddStatementDeclarations (Statement statement, BlockContext context)
         {
+            var block = context.Block;
             if (statement is MultiDeclaratorStatement multi) {
                 if (multi.InitDeclarators != null) {
                     foreach (var idecl in multi.InitDeclarators) {
                         if ((multi.Specifiers.StorageClassSpecifier & StorageClassSpecifier.Typedef) != 0) {
                             if (idecl.Declarator != null) {
                                 var name = idecl.Declarator.DeclaredIdentifier;
-                                //Typedefs[name] = decl;
+                                var ttype = context.MakeCType (multi.Specifiers, idecl.Declarator, idecl.Initializer, block);
+                                block.Typedefs[name] = ttype;
                             }
                         }
                         else {
-                            var ctype = context.MakeCType (multi.Specifiers, idecl.Declarator, idecl.Initializer, block);
+                            CType ctype = context.MakeCType (multi.Specifiers, idecl.Declarator, idecl.Initializer, block);
                             var name = idecl.Declarator.DeclaredIdentifier;
 
                             if (ctype is CFunctionType ftype && !HasStronglyBoundPointer (idecl.Declarator)) {
@@ -150,11 +212,11 @@ namespace CLanguage.Interpreter
                                     }
                                 }
                                 //var init = GetInitExpression(idecl.Initializer);
-                                block.AddVariable (name, ctype);
+                                block.AddVariable (name, ctype ?? CBasicType.SignedInt);
                             }
 
                             if (idecl.Initializer != null) {
-                                var varExpr = new VariableExpression (name);
+                                var varExpr = new VariableExpression (name, Location.Null, Location.Null);
                                 var initExpr = GetInitializerExpression (idecl.Initializer);
                                 block.InitStatements.Add (new ExpressionStatement (new AssignExpression (varExpr, initExpr)));
                             }
@@ -162,12 +224,19 @@ namespace CLanguage.Interpreter
                     }
                 }
                 else {
-                    var ctype = context.MakeCType (multi.Specifiers, block);
+                    var ctype = context.MakeCType (multi.Specifiers, null, block);
                     if (ctype is CStructType structType) {
                         var n = structType.Name;
                         if (!string.IsNullOrEmpty (n)) {
                             block.Structures[n] = structType;
                         }
+                    }
+                    else if (ctype is CEnumType enumType) {
+                        var n = enumType.Name;
+                        if (string.IsNullOrEmpty (n)) {
+                            n = "e" + enumType.GetHashCode ();
+                        }
+                        block.Enums[n] = enumType;
                     }
                 }
             }
@@ -179,11 +248,12 @@ namespace CLanguage.Interpreter
                 }
             }
             else if (statement is ForStatement fors) {
-                AddStatementDeclarations (fors.InitBlock);
-                AddStatementDeclarations (fors.LoopBody);
+                AddStatementDeclarations (fors.InitBlock, context);
+                AddStatementDeclarations (fors.LoopBody, context);
             }
-            else if (statement is Block subblock) {
-                AddStatementDeclarations (subblock);
+            else if (statement is Block subBlock) {
+                var subContext = new BlockContext (subBlock, context);
+                AddStatementDeclarations (subContext);
             }
         }
 
@@ -201,16 +271,13 @@ namespace CLanguage.Interpreter
                     var e = GetInitializerExpression (i);
 
                     if (i.Designation == null || i.Designation.Designators.Count == 0) {
-                        var ie = new StructureExpression.Item ();
-                        ie.Expression = GetInitializerExpression (i);
+                        var ie = new StructureExpression.Item (null, GetInitializerExpression (i));
                         sexpr.Items.Add (ie);
                     }
                     else {
 
                         foreach (var d in i.Designation.Designators) {
-                            var ie = new StructureExpression.Item ();
-                            ie.Field = d.ToString ();
-                            ie.Expression = e;
+                            var ie = new StructureExpression.Item (d.ToString (), e);
                             sexpr.Items.Add (ie);
                         }
                     }
@@ -223,14 +290,14 @@ namespace CLanguage.Interpreter
             }
         }
 
-        FunctionDeclarator GetFunctionDeclarator (Declarator d)
+        FunctionDeclarator? GetFunctionDeclarator (Declarator? d)
         {
             if (d == null) return null;
             else if (d is FunctionDeclarator) return (FunctionDeclarator)d;
             else return GetFunctionDeclarator (d.InnerDeclarator);
         }
 
-        bool HasStronglyBoundPointer (Declarator d)
+        bool HasStronglyBoundPointer (Declarator? d)
         {
             if (d == null) return false;
             else if (d is PointerDeclarator && ((PointerDeclarator)d).StrongBinding) return true;

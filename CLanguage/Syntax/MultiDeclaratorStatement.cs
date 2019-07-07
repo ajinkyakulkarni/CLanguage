@@ -2,13 +2,20 @@
 using System.Collections.Generic;
 using CLanguage.Interpreter;
 using CLanguage.Types;
+using CLanguage.Compiler;
 
 namespace CLanguage.Syntax
 {
     public class MultiDeclaratorStatement : Statement
     {
         public DeclarationSpecifiers Specifiers;
-        public List<InitDeclarator> InitDeclarators;
+        public List<InitDeclarator>? InitDeclarators;
+
+        public MultiDeclaratorStatement (DeclarationSpecifiers specifiers, List<InitDeclarator>? initDeclarators)
+        {
+            Specifiers = specifiers;
+            InitDeclarators = initDeclarators;
+        }
 
         public override bool AlwaysReturns => false;
 
@@ -18,7 +25,7 @@ namespace CLanguage.Syntax
 
         public override string ToString ()
         {
-            return string.Join (" ", Specifiers.TypeSpecifiers) + " " + string.Join (", ", InitDeclarators);
+            return string.Join (" ", Specifiers.TypeSpecifiers) + (InitDeclarators != null ? " " + string.Join (", ", InitDeclarators) : "");
         }
     }
 
@@ -45,14 +52,20 @@ namespace CLanguage.Syntax
         }
         public override string ToString ()
         {
-            return string.Join (" ", TypeSpecifiers);
+            return StorageClassSpecifier == StorageClassSpecifier.Auto ? "auto" : string.Join (" ", TypeSpecifiers);
         }
     }
 
     public class InitDeclarator
     {
         public Declarator Declarator;
-        public Initializer Initializer;
+        public Initializer? Initializer;
+
+        public InitDeclarator(Declarator declarator, Initializer? initializer)
+        {
+            Declarator = declarator;
+            Initializer = initializer;
+        }
 
         public override string ToString ()
         {

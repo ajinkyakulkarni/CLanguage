@@ -1,6 +1,5 @@
 #include <stdio.h>
 
-
 void printType (const char *name, const char *ty)
 {
   printf ("%s = %s\n", name, ty);

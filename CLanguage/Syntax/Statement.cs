@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using CLanguage.Interpreter;
+using CLanguage.Compiler;
 
 namespace CLanguage.Syntax
 {
@@ -23,7 +23,7 @@ namespace CLanguage.Syntax
         {
             var b = this as Block;
             if (b != null) return b;
-            b = new Block ();
+            b = new Block (VariableScope.Local);
             b.AddStatement (this);
             return b;
         }

@@ -5,6 +5,7 @@ using System.Text;
 
 using CLanguage.Types;
 using CLanguage.Interpreter;
+using CLanguage.Compiler;
 
 namespace CLanguage.Syntax
 {
@@ -42,8 +43,6 @@ namespace CLanguage.Syntax
                     item.Expression.Emit (ec);
                     ec.Emit (OpCode.StorePointer);
                 }
-
-                ec.Emit (OpCode.Pop);
             }
             else {
                 throw new NotSupportedException ($"Structured assignment of '{GetEvaluatedCType (ec)}' not supported");
@@ -56,22 +55,18 @@ namespace CLanguage.Syntax
                 DoEmitStructureAssignment (sexpr, ec);
                 return;
             }
-
+#pragma warning disable 8602
             Right.Emit(ec);
+#pragma warning restore
 
-            if (Left is VariableExpression) {
+            if (Left is VariableExpression variable) {
 
                 ec.EmitCast (Right.GetEvaluatedCType (ec), Left.GetEvaluatedCType (ec));
                 ec.Emit (OpCode.Dup);
 
-                string variableName = ((VariableExpression)Left).VariableName;
-                var v = ec.ResolveVariable (variableName, null);
+                var v = ec.ResolveVariable (variable, null);
 
-                if (v == null) {
-                    ec.Emit (OpCode.Pop);
-                    ec.Report.Error (103, $"The name `{variableName}` does not exist in the current context.");
-                }
-                else if (v.Scope == VariableScope.Global) {
+                if (v.Scope == VariableScope.Global) {
                     ec.Emit (OpCode.StoreGlobal, v.Address);
                 }
                 else if (v.Scope == VariableScope.Local) {
@@ -82,7 +77,7 @@ namespace CLanguage.Syntax
                 }
                 else if (v.Scope == VariableScope.Function) {
                     ec.Emit (OpCode.Pop);
-                    ec.Report.Error (1656, $"Cannot assign to `{variableName}` because it is a function");
+                    ec.Report.Error (1656, $"Cannot assign to `{variable.VariableName}` because it is a function");
                 }
                 else {
                     throw new NotSupportedException ("Assigning to scope '" + v.Scope + "'");

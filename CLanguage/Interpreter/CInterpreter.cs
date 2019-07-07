@@ -8,31 +8,30 @@ namespace CLanguage.Interpreter
     public class CInterpreter
     {
 		Executable exe;
-        BaseFunction entrypoint;
+        BaseFunction? entrypoint;
+
+        public Executable Executable => exe;
 
         public readonly Value[] Stack;
         public int SP;
         readonly ExecutionFrame[] Frames;
         int FI;
+        public int YieldedValue { get; private set; }
         public int SleepTime { get; set; }
         public int RemainingTime { get; set; }
 		
         public int CpuSpeed = 1000;
 
-        public ExecutionFrame CallerFrame { get { return (0 <= (FI - 1) && (FI - 1) < Frames.Length) ? Frames[FI - 1] : null; } }
-        public ExecutionFrame ActiveFrame { get { return (0 <= FI && FI < Frames.Length) ? Frames[FI] : null; } }
+        public ExecutionFrame? ActiveFrame { get { return (0 <= FI && FI < Frames.Length) ? Frames[FI] : null; } }
+
+        static readonly BaseFunction unusedStackFrameFunction = new InternalFunction ("unused", "", Types.CFunctionType.VoidProcedure);
+
 
         public CInterpreter (Executable exe, int maxStack = 1024, int maxFrames = 24)
         {
             this.exe = exe;
             Stack = new Value[maxStack];
-            Frames = (from i in Enumerable.Range (0, maxFrames) select new ExecutionFrame ()).ToArray ();
-        }
-
-        public Value ReadRelativeMemory (int frameOffset)
-        {
-            var address = ActiveFrame.FP + frameOffset;
-            return Stack[address];
+            Frames = (from i in Enumerable.Range (0, maxFrames) select new ExecutionFrame (unusedStackFrameFunction)).ToArray ();
         }
 
         public Value ReadMemory (int address)
@@ -40,9 +39,28 @@ namespace CLanguage.Interpreter
             return Stack[address];
         }
 
+        public string ReadStringWithEncoding (int address, Encoding encoding)
+        {
+            var b = (byte)Stack[address];
+            var bytes = new List<byte> ();
+            while (b != 0) {
+                bytes.Add (b);
+                address++;
+                b = (byte)Stack[address];
+            }
+            return encoding.GetString (bytes.ToArray ());
+        }
+
+        public string ReadString (int address)
+        {
+            return ReadStringWithEncoding (address, Encoding.UTF8);
+        }
+
         public Value ReadArg (int index)
         {
             var frame = ActiveFrame;
+            if (frame == null)
+                return 0;
             var functionType = frame.Function.FunctionType;
             int frameOffset;
             if (index < functionType.Parameters.Count) {
@@ -54,7 +72,8 @@ namespace CLanguage.Interpreter
             else {
                 throw new ArgumentOutOfRangeException ("Cannot read argument #" + index);
             }
-            return ReadRelativeMemory (frameOffset);
+            var address = frame.FP + frameOffset;
+            return Stack[address];
         }
 
         public void Call (Value functionAddress)
@@ -66,13 +85,13 @@ namespace CLanguage.Interpreter
         {
             if (FI + 1 >= Frames.Length) {
                 var name = function.Name;
-                var cname = ActiveFrame != null ? ActiveFrame.Function.Name : "?";
+                var cname = ActiveFrame?.Function.Name ?? "?";
                 Reset ();
                 throw new ExecutionException ("Stack overflow while calling '" + name + "' from '" + cname + "'");
             }
 
             FI++;
-            var frame = ActiveFrame;
+            var frame = Frames[FI];
 
             frame.Function = function;
             frame.FP = SP;
@@ -86,12 +105,19 @@ namespace CLanguage.Interpreter
             Stack[SP++] = value;
         }
 
+        public void Yield (int yieldedValue)
+        {
+            YieldedValue = yieldedValue;
+        }
+
         public void Return ()
         {
             //
             // Pop the stack
             //
             var frame = ActiveFrame;
+            if (frame == null)
+                throw new InvalidOperationException ($"Cannot call Return with no ActiveFrame");
             var ftype = frame.Function.FunctionType;
             var numArgsAndLocals = 0;
             foreach (var p in ftype.Parameters) {
@@ -161,8 +187,13 @@ namespace CLanguage.Interpreter
 				SleepTime = 0;
 
 				try {
-					while (RemainingTime > 0 && ActiveFrame != null) {
-						ActiveFrame.Function.Step (this);
+                    var a = ActiveFrame;
+					while (a != null && RemainingTime > 0) {
+                        RemainingTime -= CpuSpeed;
+						a.Function.Step (this, a);
+                        a = ActiveFrame;
+                        if (YieldedValue != 0)
+                            break;
 					}
 				}
 				catch (Exception) {

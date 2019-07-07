@@ -9,13 +9,13 @@ namespace CLanguage.Interpreter
         public CType VariableType { get; }
 
         public int Offset { get; set; }
-        public Value[] InitialValue { get; set; }
+        public Value[]? InitialValue { get; set; }
 
         public CompiledVariable (string name, int offset, CType type)
         {
-            Name = name;
+            Name = name ?? throw new ArgumentNullException (nameof (name));
             Offset = offset;
-            VariableType = type;
+            VariableType = type ?? throw new ArgumentNullException (nameof (type));
         }
 
         public override string ToString ()

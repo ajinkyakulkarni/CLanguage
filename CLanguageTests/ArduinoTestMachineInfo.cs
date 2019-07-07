@@ -1,16 +1,17 @@
 using System;
 using CLanguage.Interpreter;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Linq;
 using System.Diagnostics;
 using System.IO;
 using System.Collections.Generic;
 using System.Text;
 using System.Xml.Linq;
+using CLanguage.Types;
+using CLanguage.Compiler;
 
 namespace CLanguage.Tests
 {
-    public class ArduinoTestMachineInfo : MachineInfo
+    public class ArduinoTestMachineInfo : TestMachineInfo
 	{
         public TestArduino Arduino = new TestArduino ();
 
@@ -45,6 +46,10 @@ namespace CLanguage.Tests
 #define NOTE_G3 307
 #define NOTE_A3 301
 #define NOTE_B3 302
+#define bitRead(x, n) ((x & (1 << n)) != 0)
+typedef bool boolean;
+typedef unsigned char byte;
+typedef unsigned short word;
 struct SerialClass {
     void begin(int baud);
     void print(const char *value);
@@ -70,10 +75,6 @@ struct SerialClass Serial;
             AddInternalFunction ("void delay (unsigned long ms)");
             AddInternalFunction ("void tone (int pin, int note, int duration)");
             AddInternalFunction ("void noTone (int pin)");
-            AddInternalFunction ("void assertAreEqual (int expected, int actual)", AssertAreEqual);
-            AddInternalFunction ("void assertBoolsAreEqual (bool expected, bool actual)", AssertBoolsAreEqual);
-            AddInternalFunction ("void assertFloatsAreEqual (float expected, float actual)", AssertFloatsAreEqual);
-            AddInternalFunction ("void assertDoublesAreEqual (double expected, double actual)", AssertDoublesAreEqual);
             AddInternalFunction ("long millis ()", Arduino.Millis);
             AddInternalFunction ("void SerialClass::begin (int baud)", Arduino.SerialBegin);
             AddInternalFunction ("void SerialClass::print (const char *value)", Arduino.SerialPrintS);
@@ -84,32 +85,25 @@ struct SerialClass Serial;
             AddInternalFunction ("int MemberTest::f (double)", x => x.Push (2));
 		}
 
-		static void AssertAreEqual (CInterpreter state)
-		{
-			var expected = state.ReadArg(0);
-			var actual = state.ReadArg(1);
-            Assert.AreEqual ((int)expected, (int)actual);
-		}
-
-        static void AssertFloatsAreEqual (CInterpreter state)
+        public override ResolvedVariable GetUnresolvedVariable (string name, CType[] argTypes, EmitContext context)
         {
-            var expected = state.ReadArg(0);
-            var actual = state.ReadArg(1);
-            Assert.AreEqual ((float)expected, (float)actual, 1.0e-6);
-        }
-
-        static void AssertDoublesAreEqual (CInterpreter state)
-        {
-            var expected = state.ReadArg(0);
-            var actual = state.ReadArg(1);
-            Assert.AreEqual ((double)expected, (double)actual, 1.0e-12);
-        }
-
-        static void AssertBoolsAreEqual (CInterpreter state)
-        {
-            var expected = state.ReadArg(0);
-            var actual = state.ReadArg(1);
-            Assert.AreEqual ((int)expected, (int)actual);
+            if (name.Length == 9 && name[0] == 'B') {
+                byte b = 0;
+                for (var i = 0; i < 8; i++) {
+                    var c = name[i + 1];
+                    var on = false;
+                    if (c == '0') { }
+                    else if (c == '1')
+                        on = true;
+                    else
+                        return base.GetUnresolvedVariable (name, argTypes, context);
+                    if (on) {
+                        b = (byte)(b | (1 << (7 - i)));
+                    }
+                }
+                return new ResolvedVariable (b, CBasicType.UnsignedChar);
+            }
+            return base.GetUnresolvedVariable (name, argTypes, context);
         }
 
         public class TestArduino
@@ -187,25 +181,13 @@ struct SerialClass Serial;
             public void SerialPrintS (CInterpreter state)
             {
                 var p = state.ReadArg (0).PointerValue;
-                SerialOut.Write (ReadString (p, state));
+                SerialOut.Write (state.ReadString (p));
             }
 
             public void SerialPrintlnS (CInterpreter state)
             {
                 var p = state.ReadArg (0).PointerValue;
-                SerialOut.WriteLine (ReadString (p, state));
-            }
-
-            string ReadString (int pi, CInterpreter state)
-            {
-                var b = (byte)state.ReadMemory (pi);
-                var bytes = new List<byte> ();
-                while (b != 0) {
-                    bytes.Add (b);
-                    pi++;
-                    b = (byte)state.ReadMemory (pi);
-                }
-                return Encoding.UTF8.GetString (bytes.ToArray ());
+                SerialOut.WriteLine (state.ReadString (p));
             }
 
             public class Pin

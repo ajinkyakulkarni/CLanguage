@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using CLanguage.Interpreter;
 using CLanguage.Types;
+using CLanguage.Compiler;
 
 namespace CLanguage.Syntax
 {
@@ -23,7 +24,7 @@ namespace CLanguage.Syntax
 
         protected override void DoEmit(EmitContext ec)
         {
-            throw new NotImplementedException();
+            throw new NotImplementedException(GetType ().Name + ": Emit");
         }
     }
 }

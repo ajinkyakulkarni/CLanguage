@@ -3,6 +3,8 @@ using CLanguage.Interpreter;
 using CLanguage.Types;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Linq;
+using System.Globalization;
+using CLanguage.Compiler;
 
 namespace CLanguage.Tests
 {
@@ -12,9 +14,9 @@ namespace CLanguage.Tests
 		void TestPromote (MachineInfo mi, string type, int resultBytes, Signedness signedness)
 		{
 			var report = new Report (new TestPrinter ());
-			var context = new EmitContext (mi, report);
+			var context = new ExecutableContext (new Executable (mi), report);
 
-			var compiler = new Compiler (mi, report);
+			var compiler = new Compiler.CCompiler (mi, report);
 			compiler.AddCode ("test.c", type + " v;");
 			var exe = compiler.Compile ();
 
@@ -31,11 +33,11 @@ namespace CLanguage.Tests
 		void TestArithmetic (MachineInfo mi, string type1, string type2, CBasicType result)
 		{
 			var report = new Report (new TestPrinter ());
-			var context = new EmitContext (mi, report);
 
-			var compiler = new Compiler (mi, report);
+            var compiler = new Compiler.CCompiler (mi, report);
             compiler.AddCode ("test.c", type1 + " v1; " + type2 + " v2;");
-			var exe = compiler.Compile ();
+            var exe = compiler.Compile ();
+            var context = new ExecutableContext (new Executable (mi), report);
 
             var ty1 = exe.Globals.First (x => x.Name == "v1").VariableType;
 			Assert.IsInstanceOfType (ty1, typeof(CBasicType));
@@ -242,6 +244,129 @@ namespace CLanguage.Tests
 			TestArithmetic (mi, "unsigned long", "long", CBasicType.UnsignedLongInt);
 			TestArithmetic (mi, "unsigned long", "unsigned long", CBasicType.UnsignedLongInt);
 		}
-	}
+
+        CInterpreter Run (string code)
+        {
+            var fullCode = "void start() { __cinit(); main(); } " + code;
+            var i = CLanguageService.CreateInterpreter (fullCode, new ArduinoTestMachineInfo (), printer: new TestPrinter ());
+            i.Reset ("start");
+            i.Step ();
+            return i;
+        }
+
+        public void AssertEqual (int f, string code)
+        {
+            var i = Run (@"
+void main () {
+    assertAreEqual (" + f + @", " + code + @");
+}");
+        }
+
+        [TestMethod]
+        public void BitwiseNot ()
+        {
+            AssertEqual (~0, "~0");
+            AssertEqual (~1, "~1");
+            AssertEqual (~2, "~2");
+            AssertEqual (~(-0), "~(-0)");
+            AssertEqual (~(-1), "~(-1)");
+            AssertEqual (~(-2), "~(-2)");
+        }
+
+        [TestMethod]
+        public void Not ()
+        {
+            AssertEqual (1, "!0");
+            AssertEqual (0, "!1");
+            AssertEqual (0, "!2");
+            AssertEqual (1, "!(-0)");
+            AssertEqual (0, "!(-1)");
+            AssertEqual (0, "!(-2)");
+            AssertEqual (0, "!true");
+            AssertEqual (1, "!false");
+            AssertEqual (1, "!!true");
+            AssertEqual (0, "!!false");
+        }
+
+        [TestMethod]
+        public void BitwiseAnd ()
+        {
+            AssertEqual (0, "0 & 0");
+            AssertEqual (0, "0 & 1");
+            AssertEqual (0, "1 & 0");
+            AssertEqual (1, "1 & 1");
+            AssertEqual (3947 & 143, "3947 & 143");
+        }
+
+        [TestMethod]
+        public void BitwiseOr ()
+        {
+            AssertEqual (0, "0 | 0");
+            AssertEqual (1, "0 | 1");
+            AssertEqual (1, "1 | 0");
+            AssertEqual (1, "1 | 1");
+            AssertEqual (3947 | 143, "3947 | 143");
+        }
+
+        [TestMethod]
+        public void BitwiseXor ()
+        {
+            AssertEqual (0, "0 ^ 0");
+            AssertEqual (1, "0 ^ 1");
+            AssertEqual (1, "1 ^ 0");
+            AssertEqual (0, "1 ^ 1");
+            AssertEqual (3947 ^ 143, "3947 ^ 143");
+        }
+
+        [TestMethod]
+        public void ConstantTooBig ()
+        {
+            AssertEqual (8972313 & 0xFFFF, "8972313");
+        }
+
+        [TestMethod]
+        public void ShiftLeft ()
+        {
+            AssertEqual (0 << 0, "0 << 0");
+            AssertEqual (0 << 1, "0 << 1");
+            AssertEqual (0 << 2, "0 << 2");
+            AssertEqual (0 << -1, "0 << -1");
+            AssertEqual (1 << 0, "1 << 0");
+            AssertEqual (1 << 1, "1 << 1");
+            AssertEqual (1 << 2, "1 << 2");
+            //AssertEqual (1 << -1, "1 << -1");
+            AssertEqual (2 << 0, "2 << 0");
+            AssertEqual (2 << 1, "2 << 1");
+            AssertEqual (2 << 2, "2 << 2");
+            AssertEqual (2 << -1, "2 << -1");
+            AssertEqual (-1 << 0, "-1 << 0");
+            AssertEqual (-1 << 1, "-1 << 1");
+            AssertEqual (-1 << 2, "-1 << 2");
+            //AssertEqual (-1 << -1, "-1 << -1");
+            AssertEqual (4 << 5, "4 << 5");
+        }
+
+        [TestMethod]
+        public void ShiftRight ()
+        {
+            AssertEqual (10 >> 0, "10 >> 0");
+            AssertEqual (10 >> 1, "10 >> 1");
+            AssertEqual (10 >> 2, "10 >> 2");
+            AssertEqual (10 >> -1, "10 >> -1");
+            AssertEqual (11 >> 0, "11 >> 0");
+            AssertEqual (11 >> 1, "11 >> 1");
+            AssertEqual (11 >> 2, "11 >> 2");
+            AssertEqual (11 >> -1, "11 >> -1");
+            AssertEqual (12 >> 0, "12 >> 0");
+            AssertEqual (12 >> 1, "12 >> 1");
+            AssertEqual (12 >> 2, "12 >> 2");
+            AssertEqual (12 >> -1, "12 >> -1");
+            AssertEqual (-11 >> 0, "-11 >> 0");
+            AssertEqual (-11 >> 1, "-11 >> 1");
+            AssertEqual (-11 >> 2, "-11 >> 2");
+            AssertEqual (-11 >> -1, "-11 >> -1");
+            AssertEqual (34 >> 5, "34 >> 5");
+        }
+    }
 }
 

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using CLanguage.Interpreter;
 using CLanguage.Types;
+using CLanguage.Compiler;
 
 namespace CLanguage.Syntax
 {
@@ -12,8 +13,14 @@ namespace CLanguage.Syntax
         public class Item
         {
             public int Index;
-            public string Field;
+            public string? Field;
             public Expression Expression;
+
+            public Item (string? field, Expression expression)
+            {
+                Field = field;
+                Expression = expression;
+            }
         }
 
         public List<Item> Items { get; private set; }
@@ -35,7 +42,7 @@ namespace CLanguage.Syntax
 
         protected override void DoEmit(EmitContext ec)
         {
-            throw new NotImplementedException();
+            throw new NotImplementedException(GetType ().Name + ": Emit");
         }
     }
 }

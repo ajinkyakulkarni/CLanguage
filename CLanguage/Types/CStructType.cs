@@ -1,5 +1,5 @@
 ﻿using System;
-using CLanguage.Interpreter;
+using CLanguage.Compiler;
 using System.Collections.Generic;
 
 namespace CLanguage.Types
@@ -9,8 +9,9 @@ namespace CLanguage.Types
         public string Name { get; set; }
         public List<CStructMember> Members { get; set; } = new List<CStructMember> ();
 
-        public CStructType ()
+        public CStructType (string name)
         {
+            Name = name;
         }
 
         public override int NumValues {

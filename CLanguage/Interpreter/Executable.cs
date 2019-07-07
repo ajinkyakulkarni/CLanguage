@@ -17,11 +17,10 @@ namespace CLanguage.Interpreter
         readonly List<CompiledVariable> globals = new List<CompiledVariable> ();
         public IReadOnlyList<CompiledVariable> Globals => globals;
 
-		public Executable (MachineInfo machineInfo)
+        public Executable (MachineInfo machineInfo)
 		{
 			MachineInfo = machineInfo;
 			Functions = new List<BaseFunction> ();
-
 			Functions.AddRange (machineInfo.InternalFunctions.Cast<BaseFunction> ());
 		}
 

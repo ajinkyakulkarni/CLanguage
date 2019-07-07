@@ -5,6 +5,7 @@ using System.Text;
 
 using CLanguage.Types;
 using CLanguage.Interpreter;
+using CLanguage.Compiler;
 
 namespace CLanguage.Syntax
 {
@@ -76,6 +77,9 @@ namespace CLanguage.Syntax
             {
                 ConstantType = CBasicType.Double;
 			}
+            else {
+                ConstantType = CBasicType.SignedInt;
+            }
         }
 
 		public override CType GetEvaluatedCType (EmitContext ec)
@@ -85,64 +89,64 @@ namespace CLanguage.Syntax
 
         protected override void DoEmit (EmitContext ec)
         {
-            if (ConstantType is CIntType intType) {
-                var size = intType.GetByteSize (ec);
-                if (intType.Signedness == Signedness.Signed) {
-                    switch (size) {
-                        case 1:
-                            ec.Emit (OpCode.LoadConstant, (Value)Convert.ToSByte (Value));
-                            break;
-                        case 2:
-                            ec.Emit (OpCode.LoadConstant, (Value)Convert.ToInt16 (Value));
-                            break;
-                        case 4:
-                            ec.Emit (OpCode.LoadConstant, (Value)Convert.ToInt32 (Value));
-                            break;
-                        case 8:
-                            ec.Emit (OpCode.LoadConstant, (Value)Convert.ToInt64 (Value));
-                            break;
-                        default:
-                            throw new NotSupportedException ("Signed integral constants with type '" + ConstantType + "'");
-                    }
-                }
-                else {
-                    switch (size) {
-                        case 1:
-                            ec.Emit (OpCode.LoadConstant, (Value)Convert.ToByte (Value));
-                            break;
-                        case 2:
-                            ec.Emit (OpCode.LoadConstant, (Value)Convert.ToUInt16 (Value));
-                            break;
-                        case 4:
-                            ec.Emit (OpCode.LoadConstant, (Value)Convert.ToUInt32 (Value));
-                            break;
-                        case 8:
-                            ec.Emit (OpCode.LoadConstant, (Value)Convert.ToUInt64 (Value));
-                            break;
-                        default:
-                            throw new NotSupportedException ("Unsigned integral constants with type '" + ConstantType + "'");
-                    }
-                }
-            }
-            else if (ConstantType is CBoolType boolType) {
-                var ev = (Value)(byte)((bool)Value ? 1 : 0);
-                ec.Emit (OpCode.LoadConstant, ev);
-            }
-            else if (ConstantType is CFloatType floatType) {
-                var ev = floatType.Bits == 64 ? (Value)Convert.ToDouble(Value) : (Value)Convert.ToSingle (Value);
-                ec.Emit (OpCode.LoadConstant, ev);
-            }
-            else if (Value is string vs) {
-                ec.Emit (OpCode.LoadConstant, ec.GetConstantMemory (vs));
-            }
-            else {
-				throw new NotSupportedException ("Non-basic constants with type '" + ConstantType + "'");
-			}
+            var cval = EvalConstant (ec);
+            ec.Emit (OpCode.LoadConstant, cval);
         }
 
         public override string ToString()
         {
             return Value.ToString();
+        }
+
+        public override Value EvalConstant (EmitContext ec)
+        {
+            if (ConstantType is CIntType intType) {
+                var size = intType.GetByteSize (ec);
+                if (intType.Signedness == Signedness.Signed) {
+                    unchecked {
+                        switch (size) {
+                            case 1:
+                                return (sbyte)Convert.ToInt64 (Value);
+                            case 2:
+                                return (short)Convert.ToInt64 (Value);
+                            case 4:
+                                return (int)Convert.ToInt64 (Value);
+                            case 8:
+                                return Convert.ToInt64 (Value);
+                            default:
+                                throw new NotSupportedException ("Signed integral constants with type '" + ConstantType + "'");
+                        }
+                    }
+                }
+                else {
+                    unchecked {
+                        switch (size) {
+                            case 1:
+                                return (byte)Convert.ToInt64 (Value);
+                            case 2:
+                                return (ushort)Convert.ToInt64 (Value);
+                            case 4:
+                                return (uint)Convert.ToInt64 (Value);
+                            case 8:
+                                return Convert.ToUInt64 (Value);
+                            default:
+                                throw new NotSupportedException ("Unsigned integral constants with type '" + ConstantType + "'");
+                        }
+                    }
+                }
+            }
+            else if (ConstantType is CBoolType boolType) {
+                return (byte)((bool)Value ? 1 : 0);
+            }
+            else if (ConstantType is CFloatType floatType) {
+                return floatType.Bits == 64 ? (Value)Convert.ToDouble (Value) : (Value)Convert.ToSingle (Value);
+            }
+            else if (Value is string vs) {
+                return ec.GetConstantMemory (vs);
+            }
+            else {
+                throw new NotSupportedException ("Non-basic constants with type '" + ConstantType + "'");
+            }
         }
     }
 }

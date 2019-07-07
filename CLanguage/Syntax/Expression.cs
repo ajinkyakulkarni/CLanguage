@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using CLanguage.Interpreter;
+using CLanguage.Compiler;
 using CLanguage.Types;
 
 namespace CLanguage.Syntax
@@ -10,10 +10,11 @@ namespace CLanguage.Syntax
     public abstract class Expression
     {
         public Location Location { get; protected set; }
+        public Location EndLocation { get; protected set; }
 
         public bool HasError { get; set; }
 
-        public void Emit(EmitContext ec)
+        public void Emit (EmitContext ec)
         {
             DoEmit(ec);
         }
@@ -36,7 +37,7 @@ namespace CLanguage.Syntax
 			var leftBasicType = leftType as CBasicType;
 
 			if (leftBasicType == null) {
-				ec.Report.Error (19, "Operator '" + op + "' cannot be applied to operand of type '" + leftType + "'");
+				ec.Report.Error (19, "'" + op + "' cannot be applied to operand of type '" + leftType + "'");
 				return CBasicType.SignedInt;
 			} else {
 				return leftBasicType.IntegerPromote (ec);
@@ -52,11 +53,17 @@ namespace CLanguage.Syntax
 			var rightBasicType = rightType as CBasicType;
 
 			if (leftBasicType == null || rightBasicType == null) {
-				ec.Report.Error (19, "Operator '" + op + "' cannot be applied to operands of type '" + leftType + "' and '" + rightType + "'");
+				ec.Report.Error (19, "'" + op + "' cannot be applied to operands of type '" + leftType + "' and '" + rightType + "'");
 				return CBasicType.SignedInt;
 			} else {
 				return leftBasicType.ArithmeticConvert (rightBasicType, ec);
 			}
 		}
+
+        public virtual Value EvalConstant (EmitContext ec)
+        {
+            ec.Report.Error (133, $"'{this}' not constant");
+            return 0;
+        }
     }
 }

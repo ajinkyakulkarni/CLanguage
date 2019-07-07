@@ -16,11 +16,11 @@ namespace CLanguage.Tests
             mi.AddInternalFunction ("void delay()");
             mi.HeaderCode = "#define FOO 1\n\nvoid delay();\n\n";
             var colors = CLanguageService.Colorize (code, mi);
-            Assert.AreEqual (expectedColors.Length, colors.Length);
+            Assert.AreEqual (expectedColors.Length, colors.Length, "Number of colored tokens don't match.");
             for (int i = 0; i < colors.Length; i++) {
                 var color = colors[i];
                 var ecolor = expectedColors[i];
-                Assert.IsTrue (color.Length > 0, "Span has length = 0");
+                Assert.IsTrue (color.Length > 0, "Span has length == 0");
                 Assert.AreEqual (ecolor, color.Color);
             }
         }
@@ -136,9 +136,35 @@ namespace CLanguage.Tests
         public void UserDefine ()
         {
             AssertColorization ("#define FOOFOO 100\n\nFOOFOO + 3",
+                                SyntaxColor.Operator,
+                                SyntaxColor.Keyword,
+                                SyntaxColor.Identifier,
+                                SyntaxColor.Number,
                                 SyntaxColor.Identifier,
                                 SyntaxColor.Operator,
                                 SyntaxColor.Number);
+        }
+
+        [TestMethod]
+        public void UnsignedSigned ()
+        {
+            AssertColorization ("signed int x; unsigned int y;",
+                                SyntaxColor.Type,
+                                SyntaxColor.Type,
+                                SyntaxColor.Identifier,
+                                SyntaxColor.Operator,
+                                SyntaxColor.Type,
+                                SyntaxColor.Type,
+                                SyntaxColor.Identifier,
+                                SyntaxColor.Operator);
+        }
+
+        [TestMethod]
+        public void UnterminatedString ()
+        {
+            AssertColorization ("\"sdfsdfsd\nx",
+                                SyntaxColor.String,
+                                SyntaxColor.Identifier);
         }
     }
 }

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using CLanguage.Interpreter;
 using CLanguage.Types;
+using CLanguage.Compiler;
 
 namespace CLanguage.Syntax
 {
@@ -26,14 +27,14 @@ namespace CLanguage.Syntax
 
                 var member = structType.Members.FirstOrDefault (x => x.Name == MemberName);
                 if (member == null) {
-                    ec.Report.Error (1061, "Struct '{0}' does not contain a defintion for '{1}'", structType.Name, MemberName);
+                    ec.Report.Error (1061, "'{1}' not found in '{0}'", structType.Name, MemberName);
                     return CBasicType.SignedInt;
                 }
 
                 return member.MemberType;
             }
             else {
-                throw new NotImplementedException ("Member type on " + targetType.GetType ().Name);
+                throw new NotImplementedException ("Member type on " + targetType?.GetType ().Name);
             }
         }
 
@@ -46,7 +47,7 @@ namespace CLanguage.Syntax
                 var member = structType.Members.FirstOrDefault (x => x.Name == MemberName);
 
                 if (member == null) {
-                    ec.Report.Error (1061, "Struct '{0}' does not contain a definition for '{1}'", structType.Name, MemberName);
+                    ec.Report.Error (1061, "'{1}' not found in '{0}'", structType.Name, MemberName);
                 }
                 else {
                     if (member is CStructMethod method && member.MemberType is CFunctionType functionType) {
@@ -62,7 +63,7 @@ namespace CLanguage.Syntax
                 }
             }
             else {
-                throw new NotSupportedException ("Member access on " + targetType.GetType ().Name);
+                throw new NotSupportedException ("Member access on " + targetType?.GetType ().Name);
             }
         }
 

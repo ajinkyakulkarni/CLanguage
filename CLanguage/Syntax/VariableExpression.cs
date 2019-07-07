@@ -2,9 +2,10 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using CLanguage.Types;
 
+using CLanguage.Types;
 using CLanguage.Interpreter;
+using CLanguage.Compiler;
 
 namespace CLanguage.Syntax
 {
@@ -12,25 +13,21 @@ namespace CLanguage.Syntax
     {
         public string VariableName { get; private set; }
 
-        public VariableExpression(string val)
+        public VariableExpression (string val, Location loc, Location endLoc)
         {
             VariableName = val;
+            Location = loc;
+            EndLocation = endLoc;
         }
 
 		public override CType GetEvaluatedCType (EmitContext ec)
 		{
-			var v = ec.ResolveVariable (VariableName, null);
-			if (v != null) {
-				return v.VariableType;
-			}
-			else {
-				return CBasicType.SignedInt;
-			}
+			return ec.ResolveVariable (this, null).VariableType;
         }
 
         protected override void DoEmit(EmitContext ec)
         {
-			var variable = ec.ResolveVariable (VariableName, null);
+			var variable = ec.ResolveVariable (this, null);
 
 			if (variable != null) {
 
@@ -39,7 +36,8 @@ namespace CLanguage.Syntax
 				}
 				else {
                     if (variable.VariableType is CBasicType ||
-                        variable.VariableType is CPointerType) {
+                        variable.VariableType is CPointerType ||
+                        variable.VariableType is CEnumType) {
 
                         if (variable.Scope == VariableScope.Arg) {
                             ec.Emit (OpCode.LoadArg, variable.Address);
@@ -49,6 +47,9 @@ namespace CLanguage.Syntax
                         }
                         else if (variable.Scope == VariableScope.Local) {
                             ec.Emit (OpCode.LoadLocal, variable.Address);
+                        }
+                        else if (variable.Scope == VariableScope.Constant) {
+                            ec.Emit (OpCode.LoadConstant, variable.Constant);
                         }
                         else {
                             throw new NotSupportedException ("Cannot evaluate variable scope '" + variable.Scope + "'");
@@ -79,20 +80,18 @@ namespace CLanguage.Syntax
 				}
 			}
 			else {
-                ec.Report.Error (103, $"The name `{VariableName}` does not exist in the current context.");
 				ec.Emit (OpCode.LoadConstant, 0);
 			}
         }
 
         protected override void DoEmitPointer (EmitContext ec)
         {
-            var res = ec.ResolveVariable (VariableName, null);
+            var res = ec.ResolveVariable (this, null);
 
             if (res != null) {
-                res.Emit (ec);
+                res.EmitPointer (ec);
             }
             else {
-                ec.Report.Error (103, $"The name `{VariableName}` does not exist in the current context.");
                 ec.Emit (OpCode.LoadConstant, 0);
             }
         }
@@ -100,6 +99,19 @@ namespace CLanguage.Syntax
         public override string ToString()
         {
             return VariableName.ToString();
+        }
+
+        public override Value EvalConstant (EmitContext ec)
+        {
+            var res = ec.ResolveVariable (this, null);
+
+            if (res != null) {
+                if (res.Scope == VariableScope.Constant) {
+                    return res.Constant;
+                }
+            }
+
+            return base.EvalConstant (ec);
         }
     }
 }

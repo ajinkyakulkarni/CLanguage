@@ -4,47 +4,52 @@ using System.Linq;
 using System.Text;
 using CLanguage.Types;
 using CLanguage.Interpreter;
+using CLanguage.Compiler;
 
 namespace CLanguage.Syntax
 {
     public class Block : Statement
     {
-        public Location StartLocation { get; private set; } = Location.Null;
-        public List<Statement> Statements { get; private set; } = new List<Statement> ();
-        public Location EndLocation { get; set; } = Location.Null;
+        public VariableScope VariableScope { get; }
+        public List<Statement> Statements { get; } = new List<Statement> ();
+
+        public Block? Parent { get; set; }
+
+        public override bool AlwaysReturns => Statements.Any (s => s.AlwaysReturns);
 
         public List<CompiledVariable> Variables { get; private set; } = new List<CompiledVariable> ();
         public List<CompiledFunction> Functions { get; private set; } = new List<CompiledFunction> ();
         public Dictionary<string, CType> Typedefs { get; private set; } = new Dictionary<string, CType> ();
         public List<Statement> InitStatements { get; private set; } = new List<Statement> ();
         public Dictionary<string, CStructType> Structures { get; private set; } = new Dictionary<string, CStructType> ();
+        public Dictionary<string, CEnumType> Enums { get; private set; } = new Dictionary<string, CEnumType> ();
 
-        public Block ()
+        public Block (VariableScope variableScope, IEnumerable<Statement> statements)
         {
+            AddStatements (statements);
+            VariableScope = variableScope;
         }
 
-        public Block (Location startLoc, List<Statement> statements, Location endLoc)
+        public Block (VariableScope variableScope)
         {
-            StartLocation = startLoc;
-            Statements.AddRange (statements);
-            EndLocation = endLoc;
+            VariableScope = variableScope;
         }
 
-        public Block (Location startLoc, Location endLoc)
+        public void AddStatement (Statement? stmt)
         {
-            StartLocation = startLoc;
-            EndLocation = endLoc;
+            if (stmt != null)
+                Statements.Add (stmt);
+
+            if (stmt is Block block) {
+                block.Parent = this;
+            }
         }
 
-        public Block (Block parent, Location startLoc)
+        public void AddStatements (IEnumerable<Statement> stmts)
         {
-            StartLocation = startLoc;
-            EndLocation = Location.Null;
-        }
-
-        public void AddStatement (Statement stmt)
-        {
-            Statements.Add (stmt);
+            foreach (var s in stmts) {
+                AddStatement (s);
+            }
         }
 
         protected override void DoEmit (EmitContext ec)
@@ -57,12 +62,6 @@ namespace CLanguage.Syntax
                 s.Emit (ec);
             }
             ec.EndBlock ();
-        }
-
-        public override bool AlwaysReturns {
-            get {
-                return Statements.Any (s => s.AlwaysReturns);
-            }
         }
 
         public void AddVariable (string name, CType ctype)

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 
 using CLanguage.Interpreter;
+using CLanguage.Compiler;
 
 namespace CLanguage.Syntax
 {
@@ -11,14 +12,14 @@ namespace CLanguage.Syntax
     {
         public Block InitBlock { get; private set; }
         public Expression ContinueExpression { get; private set; }
-        public Expression NextExpression { get; private set; }
+        public Expression? NextExpression { get; private set; }
         public Block LoopBody { get; private set; }
 
         public ForStatement (Statement initStatement, Expression continueExpr, Block body)
         {
-            InitBlock = new Block ();
+            InitBlock = new Block (VariableScope.Local);
             if (initStatement != null) {
-                InitBlock.Statements.Add (initStatement);
+                InitBlock.AddStatement (initStatement);
             }
             ContinueExpression = continueExpr;
             LoopBody = body;
@@ -26,30 +27,9 @@ namespace CLanguage.Syntax
 
         public ForStatement (Statement initStatement, Expression continueExpr, Expression nextExpr, Block body)
         {
-            InitBlock = new Block ();
+            InitBlock = new Block (VariableScope.Local);
             if (initStatement != null) {
-                InitBlock.Statements.Add (initStatement);
-            }
-            ContinueExpression = continueExpr;
-            NextExpression = nextExpr;
-            LoopBody = body;
-        }
-
-	    public ForStatement(Statement initStatement, Expression continueExpr, Block body, Block parent, Location startLoc, Location endLoc)
-        {
-            InitBlock = new Block(startLoc, endLoc);
-            if (initStatement != null) {
-                InitBlock.Statements.Add (initStatement);
-            }
-            ContinueExpression = continueExpr;
-            LoopBody = body;
-        }
-
-		public ForStatement(Statement initStatement, Expression continueExpr, Expression nextExpr, Block body, Block parent, Location startLoc, Location endLoc)
-        {
-            InitBlock = new Block(startLoc, endLoc);
-            if (initStatement != null) {
-                InitBlock.Statements.Add (initStatement);
+                InitBlock.AddStatement (initStatement);
             }
             ContinueExpression = continueExpr;
             NextExpression = nextExpr;
@@ -76,8 +56,10 @@ namespace CLanguage.Syntax
 
             LoopBody.Emit (ec);
 
-			NextExpression.Emit (ec);
-			ec.Emit (OpCode.Pop);
+            if (NextExpression != null) {
+                NextExpression.Emit (ec);
+                ec.Emit (OpCode.Pop);
+            }
 			ec.Emit (OpCode.Jump, contLabel);
 
 			ec.EmitLabel (endLabel);

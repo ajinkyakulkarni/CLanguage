@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using CLanguage.Syntax;
 using CLanguage.Types;
+using CLanguage.Interpreter;
 
-namespace CLanguage.Interpreter
+namespace CLanguage.Compiler
 {
-    class FunctionContext : EmitContext
+    class FunctionContext : BlockContext
     {
         Executable exe;
         CompiledFunction fexe;
-        EmitContext context;
 
         class BlockLocals
         {
@@ -23,24 +23,39 @@ namespace CLanguage.Interpreter
 
         public IEnumerable<CompiledVariable> LocalVariables { get { return allLocals; } }
 
-        public FunctionContext (Executable exe, CompiledFunction fexe, EmitContext context)
-            : base (context.MachineInfo, context.Report, fexe)
+        public FunctionContext (Executable exe, CompiledFunction fexe, EmitContext parentContext)
+            : base (fexe.Body ?? new Block (VariableScope.Local), parentContext.MachineInfo, parentContext.Report, fexe, parentContext)
         {
             this.exe = exe;
             this.fexe = fexe;
-            this.context = context;
             blocks = new List<Block> ();
             blockLocals = new Dictionary<Block, BlockLocals> ();
             allLocals = new List<CompiledVariable> ();
         }
 
-        //public override CType ResolveTypeName (TypeName name)
-        //{
-        //    MakeCType (name.Specifiers, null);
-        //    return null;
-        //}
+        public override CType ResolveTypeName (string typeName)
+        {
+            //
+            // Look for local types
+            //
+            foreach (var b in blocks.Reverse<Block> ()) {
+                if (b.Typedefs.TryGetValue (typeName, out var t))
+                    return t;
+            }
 
-        public override ResolvedVariable ResolveVariable (string name, CType[] argTypes)
+            //
+            // Look for global types
+            //
+            //foreach (var t in exe.GlobalTypes) {
+            //    if (t.Name == typeName) {
+            //        return t.Type;
+            //    }
+            //}
+
+            return base.ResolveTypeName (typeName);
+        }
+
+        public override ResolvedVariable? TryResolveVariable (string name, CType[]? argTypes)
         {
             //
             // Look for function parameters
@@ -65,57 +80,7 @@ namespace CLanguage.Interpreter
                 }
             }
 
-            //
-            // Look for global variables
-            //
-            for (var i = 0; i < exe.Globals.Count; i++) {
-                if (exe.Globals[i].Name == name) {
-                    return new ResolvedVariable (VariableScope.Global, exe.Globals[i].Offset, exe.Globals[i].VariableType);
-                }
-            }
-
-            //
-            // Look for global functions
-            //
-            BaseFunction ff = null;
-            var fi = -1;
-            var fs = 0;
-            for (var i = 0; i < exe.Functions.Count; i++) {
-                var f = exe.Functions[i];
-                if (f.Name == name && string.IsNullOrEmpty (f.NameContext)) {
-                    var score = f.FunctionType.ScoreParameterTypeMatches (argTypes);
-                    if (score > fs) {
-                        ff = f;
-                        fi = i;
-                        fs = score;
-                    }
-                }
-            }
-            if (ff != null) {
-                return new ResolvedVariable (ff, fi);
-            }
-
-            context.Report.Error (103, "The name '" + name + "' does not exist in the current context");
-            return null;
-        }
-
-        public override ResolvedVariable ResolveMethodFunction (CStructType structType, CStructMethod method)
-        {
-            if (method.MemberType is CFunctionType ftype) {
-
-                var nameContext = structType.Name;
-
-                var funcs = exe.Functions.Select ((f, i) => (f, i)).Where (x => x.Item1.NameContext == nameContext && x.Item1.Name == method.Name);
-                for (var i = 0; i < exe.Functions.Count; i++) {
-                    var f = exe.Functions[i];
-                    if (f.NameContext == nameContext && f.Name == method.Name && f.FunctionType.ParameterTypesEqual (ftype)) {
-                        return new ResolvedVariable (f, i);
-                    }
-                }
-            }
-
-            context.Report.Error (9000, $"No definition for '{structType.Name}::{method.Name}' found");
-            return null;
+            return base.TryResolveVariable (name, argTypes);
         }
 
         public override void BeginBlock (Block b)
